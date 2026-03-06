@@ -37,6 +37,8 @@ describe("POST /api/stock-analysis", () => {
   });
 
   it("returns 500 when GROQ key is missing", async () => {
+    delete process.env.GROQ_API_KEY;
+
     const req = new Request("http://localhost:3000/api/stock-analysis", {
       method: "POST",
       headers: { "Content-Type": "application/json" },

@@ -1,4 +1,5 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { ReactNode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { Stock } from "@/types/stock";
@@ -41,6 +42,21 @@ vi.mock("next/navigation", () => ({
 
 import StockDashboard from "./StockDashboard";
 
+const renderDashboard = (market: "domestic" | "foreign") => {
+  const client = new QueryClient({
+    defaultOptions: {
+      queries: {
+        retry: false,
+      },
+    },
+  });
+  return render(
+    <QueryClientProvider client={client}>
+      <StockDashboard market={market} />
+    </QueryClientProvider>
+  );
+};
+
 const stocks: Stock[] = [
   {
     id: "kis-005930",
@@ -79,10 +95,23 @@ describe("StockDashboard", () => {
       isStreaming: false,
       refetch: mocks.refetch,
     }));
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          recommendations: [],
+        }),
+        {
+          status: 200,
+          headers: {
+            "Content-Type": "application/json",
+          },
+        }
+      )
+    );
   });
 
   it("shows domestic ranking selector and updates query ranking", () => {
-    render(<StockDashboard market="domestic" />);
+    renderDashboard("domestic");
 
     expect(screen.getByText("리스트 기준")).toBeInTheDocument();
     expect(mocks.useStocks).toHaveBeenCalledWith("domestic", "volume");
@@ -100,14 +129,14 @@ describe("StockDashboard", () => {
       isLoading: false,
     }));
 
-    render(<StockDashboard market="foreign" />);
+    renderDashboard("foreign");
 
     expect(screen.queryByText("리스트 기준")).not.toBeInTheDocument();
     expect(mocks.useStocks).toHaveBeenCalledWith("foreign", "volume");
   });
 
   it("triggers refetch after selecting analyze target", async () => {
-    render(<StockDashboard market="domestic" />);
+    renderDashboard("domestic");
 
     fireEvent.click(screen.getAllByRole("button", { name: "AI 분석" })[1]);
 
@@ -117,7 +146,7 @@ describe("StockDashboard", () => {
   });
 
   it("navigates to search page when search is submitted", () => {
-    render(<StockDashboard market="domestic" />);
+    renderDashboard("domestic");
 
     fireEvent.change(
       screen.getByPlaceholderText("종목명 또는 티커로 검색 (예: 삼성전자, AAPL)"),
