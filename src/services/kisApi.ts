@@ -2,6 +2,7 @@ import "server-only";
 
 import { unzipSync } from "fflate";
 import iconv from "iconv-lite";
+import { HISTORY_POINT_COUNT } from "@/constants/history";
 import { getKisAccessToken } from "@/services/kisTokenStore";
 import type { Stock, StockHistoryPoint } from "@/types/stock";
 
@@ -19,12 +20,10 @@ const DOMESTIC_MASTER_FILES = [
 ];
 const DOMESTIC_MASTER_CACHE_TTL_MS = 6 * 60 * 60 * 1000;
 
-let domesticMasterCache:
-  | {
-      expiresAt: number;
-      items: Array<{ symbol: string; name: string }>;
-    }
-  | null = null;
+let domesticMasterCache: {
+  expiresAt: number;
+  items: Array<{ symbol: string; name: string }>;
+} | null = null;
 
 const getAccessToken = () => getKisAccessToken();
 
@@ -46,13 +45,15 @@ const parseHistoryFromDaily = (items: Array<Record<string, unknown>>) => {
       return { date: `${y}-${m}-${d}`, value: Number(value.toFixed(0)) };
     })
     .filter((item): item is StockHistoryPoint => Boolean(item));
-  return parsed.sort((a, b) => a.date.localeCompare(b.date)).slice(-7);
+  return parsed.sort((a, b) => a.date.localeCompare(b.date));
 };
 
 const buildFlatHistory = (price: number): StockHistoryPoint[] => {
   const today = new Date();
-  return Array.from({ length: 7 }).map((_, index) => ({
-    date: new Date(today.getTime() - (6 - index) * 86400000)
+  return Array.from({ length: HISTORY_POINT_COUNT }).map((_, index) => ({
+    date: new Date(
+      today.getTime() - (HISTORY_POINT_COUNT - 1 - index) * 86400000
+    )
       .toISOString()
       .slice(0, 10),
     value: Number(price.toFixed(0)),
@@ -96,7 +97,6 @@ const pickOverseasNameField = (item: Record<string, unknown>) => {
   }
   return "";
 };
-
 
 const pickOverseasPrice = (item: Record<string, unknown>) => {
   const candidates = [
@@ -247,17 +247,18 @@ const getDomesticMasterItems = async () => {
   }
 
   const fileResults = await Promise.all(
-    DOMESTIC_MASTER_FILES.map((fileName) => downloadDomesticMasterFile(fileName))
+    DOMESTIC_MASTER_FILES.map((fileName) =>
+      downloadDomesticMasterFile(fileName)
+    )
   );
-  const merged = fileResults.flat().reduce<Array<{ symbol: string; name: string }>>(
-    (acc, item) => {
+  const merged = fileResults
+    .flat()
+    .reduce<Array<{ symbol: string; name: string }>>((acc, item) => {
       if (!acc.some((existing) => existing.symbol === item.symbol)) {
         acc.push(item);
       }
       return acc;
-    },
-    []
-  );
+    }, []);
 
   domesticMasterCache = {
     expiresAt: Date.now() + DOMESTIC_MASTER_CACHE_TTL_MS,
@@ -269,7 +270,9 @@ const getDomesticMasterItems = async () => {
 const fetchDomesticQuoteQuick = async (symbol: string, token: string) => {
   const appKey = process.env.KIS_APP_KEY ?? "";
   const appSecret = process.env.KIS_APP_SECRET ?? "";
-  const url = new URL(`${KIS_BASE_URL}/uapi/domestic-stock/v1/quotations/inquire-price`);
+  const url = new URL(
+    `${KIS_BASE_URL}/uapi/domestic-stock/v1/quotations/inquire-price`
+  );
   url.searchParams.set("FID_COND_MRKT_DIV_CODE", "J");
   url.searchParams.set("FID_INPUT_ISCD", symbol);
 
@@ -503,7 +506,7 @@ const fetchDailyHistory = async (symbol: string, token: string) => {
       "0"
     )}${String(date.getDate()).padStart(2, "0")}`;
   const endDate = toYmd(today);
-  const startDate = toYmd(new Date(today.getTime() - 14 * 86400000));
+  const startDate = toYmd(new Date(today.getTime() - 100 * 86400000));
   url.searchParams.set("FID_INPUT_DATE_1", startDate);
   url.searchParams.set("FID_INPUT_DATE_2", endDate);
 
@@ -703,7 +706,9 @@ export const searchStocksFromKis = async (query: string): Promise<Stock[]> => {
   return [...domesticResults, ...foreignResults].slice(0, 20);
 };
 
-export const fetchStockByIdFromKis = async (stockId: string): Promise<Stock> => {
+export const fetchStockByIdFromKis = async (
+  stockId: string
+): Promise<Stock> => {
   const symbol = stockId.replace(/^kis-/, "").trim().toUpperCase();
   if (!symbol) {
     throw new Error("유효한 종목 ID가 아닙니다.");

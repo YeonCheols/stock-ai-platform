@@ -1,9 +1,12 @@
 import Groq from "groq-sdk";
+import { HISTORY_POINT_COUNT } from "@/constants/history";
 import type { Stock, StockHistoryPoint } from "@/types/stock";
 import {
   fetchDomesticStocksFromKis,
   fetchForeignStocksFromKis,
 } from "@/services/kisApi";
+
+const DAY_MS = 86400000;
 
 const computeChange = (history: StockHistoryPoint[]) => {
   if (history.length < 2) {
@@ -18,24 +21,26 @@ const computeChange = (history: StockHistoryPoint[]) => {
 };
 
 const ensureHistory = (history: StockHistoryPoint[]) => {
-  if (history.length >= 7) {
-    return history.slice(-7);
+  if (history.length >= HISTORY_POINT_COUNT) {
+    return history.slice(-HISTORY_POINT_COUNT);
   }
   if (history.length === 0) {
     const today = Date.now();
-    return Array.from({ length: 7 }).map((_, index) => ({
-      date: new Date(today - (6 - index) * 86400000).toISOString().slice(0, 10),
+    return Array.from({ length: HISTORY_POINT_COUNT }).map((_, index) => ({
+      date: new Date(today - (HISTORY_POINT_COUNT - 1 - index) * DAY_MS)
+        .toISOString()
+        .slice(0, 10),
       value: 0,
     }));
   }
   const last = history[history.length - 1]?.value ?? 0;
   const padded = [...history];
-  while (padded.length < 7) {
+  while (padded.length < HISTORY_POINT_COUNT) {
     const prev = padded[0]?.date
       ? new Date(padded[0].date).getTime()
       : Date.now();
     padded.unshift({
-      date: new Date(prev - 86400000).toISOString().slice(0, 10),
+      date: new Date(prev - DAY_MS).toISOString().slice(0, 10),
       value: last,
     });
   }
@@ -78,8 +83,10 @@ const randomSymbol = () => {
 const randomHistory = () => {
   const today = Date.now();
   const base = randomInt(20000, 200000);
-  return Array.from({ length: 7 }).map((_, index) => ({
-    date: new Date(today - (6 - index) * 86400000).toISOString().slice(0, 10),
+  return Array.from({ length: HISTORY_POINT_COUNT }).map((_, index) => ({
+    date: new Date(today - (HISTORY_POINT_COUNT - 1 - index) * DAY_MS)
+      .toISOString()
+      .slice(0, 10),
     value: base + randomInt(-3000, 3000),
   }));
 };
@@ -98,8 +105,9 @@ const fetchStocksFromGroq = async (): Promise<Stock[]> => {
     price: exampleHistory[exampleHistory.length - 1]?.value ?? 100000,
     change: Number(
       (
-        ((exampleHistory[6].value - exampleHistory[5].value) /
-          exampleHistory[5].value) *
+        ((exampleHistory[exampleHistory.length - 1].value -
+          exampleHistory[exampleHistory.length - 2].value) /
+          exampleHistory[exampleHistory.length - 2].value) *
         100
       ).toFixed(2)
     ),
@@ -107,12 +115,12 @@ const fetchStocksFromGroq = async (): Promise<Stock[]> => {
   };
 
   const prompt = [
-    "가상의 주식 종목 리스트를 생성하고 최신 시장 분위기를 반영한 가격과 7일 가격 추이를 생성하세요.",
+    "가상의 주식 종목 리스트를 생성하고 최신 시장 분위기를 반영한 가격과 100일 가격 추이를 생성하세요.",
     "국내(domestic) 10개, 해외(foreign) 10개로 구성하세요.",
     "국내(domestic) 종목의 name은 반드시 한국어로 작성하세요.",
     "반드시 아래 JSON 형식으로만 응답하세요.",
-    "각 종목은 id, symbol, name, market(domestic|foreign), price, change, history(7개) 필드를 포함합니다.",
-    "history는 최근 7일 날짜(YYYY-MM-DD)와 price 값으로 구성하세요.",
+    "각 종목은 id, symbol, name, market(domestic|foreign), price, change, history(100개) 필드를 포함합니다.",
+    "history는 최근 100일 날짜(YYYY-MM-DD)와 price 값으로 구성하세요.",
     JSON.stringify(
       {
         stocks: [example],

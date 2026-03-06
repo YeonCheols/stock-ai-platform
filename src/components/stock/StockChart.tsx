@@ -71,12 +71,13 @@ export default function StockChart({
       },
     });
 
+    // KR market convention: up = red, down = blue.
     const candleSeries = chart.addSeries(CandlestickSeries, {
-      upColor: "rgb(54, 116, 217)",
-      downColor: "rgb(225, 50, 85)",
+      upColor: "rgb(225, 50, 85)",
+      downColor: "rgb(54, 116, 217)",
       borderVisible: false,
-      wickUpColor: "rgb(54, 116, 217)",
-      wickDownColor: "rgb(225, 50, 85)",
+      wickUpColor: "rgb(225, 50, 85)",
+      wickDownColor: "rgb(54, 116, 217)",
     });
 
     const candleData = history.map((point, index) => {

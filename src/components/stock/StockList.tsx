@@ -40,7 +40,7 @@ export default function StockList({
             Stock Overview
           </h2>
           <p className="text-sm text-slate-500">
-            최근 7일간의 주식 현황을 모니터링합니다.
+            최근 기간의 주식 현황을 모니터링합니다.
           </p>
         </div>
         <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-600 dark:bg-slate-800 dark:text-slate-300">
