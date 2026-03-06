@@ -42,44 +42,47 @@ const fetchStreamedAnalysis = async (
   }
 ) => {
   handlers?.onStart?.();
-  const response = await fetch("/api/stock-analysis", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      symbol: stock.symbol,
-      priceData: {
-        currentPrice: stock.price,
-        change: stock.change,
-        history: stock.history,
-      },
-    }),
-  });
+  try {
+    const response = await fetch("/api/stock-analysis", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        symbol: stock.symbol,
+        priceData: {
+          currentPrice: stock.price,
+          change: stock.change,
+          history: stock.history,
+        },
+      }),
+    });
 
-  if (!response.ok) {
-    throw new Error("AI 분석 요청 실패");
-  }
-
-  const reader = response.body?.getReader();
-  if (!reader) {
-    throw new Error("스트리밍 응답을 열 수 없습니다.");
-  }
-
-  const decoder = new TextDecoder();
-  let result = "";
-
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) {
-      break;
+    if (!response.ok) {
+      throw new Error("AI 분석 요청 실패");
     }
-    result += decoder.decode(value, { stream: true });
-    handlers?.onDelta?.(result);
-  }
-  result += decoder.decode();
-  handlers?.onDone?.();
 
-  const parsed = JSON.parse(result) as Record<string, unknown>;
-  return parseAnalysis(stock.symbol, parsed);
+    const reader = response.body?.getReader();
+    if (!reader) {
+      throw new Error("스트리밍 응답을 열 수 없습니다.");
+    }
+
+    const decoder = new TextDecoder();
+    let result = "";
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) {
+        break;
+      }
+      result += decoder.decode(value, { stream: true });
+      handlers?.onDelta?.(result);
+    }
+    result += decoder.decode();
+
+    const parsed = JSON.parse(result) as Record<string, unknown>;
+    return parseAnalysis(stock.symbol, parsed);
+  } finally {
+    handlers?.onDone?.();
+  }
 };
 
 export const useStockDetail = (stock: Stock | null) => {
