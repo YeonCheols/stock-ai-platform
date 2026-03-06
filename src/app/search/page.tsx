@@ -2,7 +2,14 @@
 
 import Link from "next/link";
 import { useSearchParams, useRouter } from "next/navigation";
-import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
+import {
+  Suspense,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type FormEvent,
+} from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Search } from "lucide-react";
 import StockList from "@/components/stock/StockList";
@@ -12,7 +19,7 @@ import Toast from "@/components/ui/Toast";
 import { useStockDetail } from "@/hooks/useStockDetail";
 import type { Stock } from "@/types/stock";
 
-export default function StockSearchPage() {
+function StockSearchPageContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const query = (
@@ -183,5 +190,28 @@ export default function StockSearchPage() {
         tone="error"
       />
     </main>
+  );
+}
+
+export default function StockSearchPage() {
+  return (
+    <Suspense
+      fallback={
+        <main className="min-h-screen px-6 py-10 lg:px-12">
+          <section className="mx-auto flex w-full max-w-6xl flex-col gap-8">
+            <div className="space-y-4 rounded-2xl border border-slate-200 bg-white p-6 dark:border-slate-800 dark:bg-slate-900">
+              <p className="text-sm font-medium text-slate-500 dark:text-slate-400">
+                검색 화면 로딩 중...
+              </p>
+              <div className="h-10 animate-pulse rounded-lg bg-slate-100 dark:bg-slate-800" />
+              <div className="h-10 animate-pulse rounded-lg bg-slate-100 dark:bg-slate-800" />
+              <div className="h-10 animate-pulse rounded-lg bg-slate-100 dark:bg-slate-800" />
+            </div>
+          </section>
+        </main>
+      }
+    >
+      <StockSearchPageContent />
+    </Suspense>
   );
 }
