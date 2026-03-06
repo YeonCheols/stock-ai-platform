@@ -1,6 +1,4 @@
-import type { ApexOptions } from "apexcharts";
-
-export const getSparklineOptions = (isPositive: boolean): ApexOptions => ({
+export const getSparklineOptions = (isPositive: boolean) => ({
   chart: {
     type: "line",
     sparkline: {
