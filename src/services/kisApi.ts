@@ -235,8 +235,52 @@ const parseNumeric = (value: unknown) => {
     return value;
   }
   if (typeof value === "string") {
-    const num = Number(value);
+    const num = Number(value.replace(/,/g, "").replace(/%/g, "").trim());
     return Number.isFinite(num) ? num : 0;
+  }
+  return 0;
+};
+
+const pickOverseasChange = (item: Record<string, unknown>) => {
+  const changeRateCandidates = [
+    "ovrs_prdy_ctrt",
+    "prdy_ctrt",
+    "chng_rate",
+    "change_rate",
+    "prdy_vrss_rt",
+    "rate",
+  ];
+  for (const key of changeRateCandidates) {
+    const value = parseNumeric(item[key]);
+    if (value !== 0) {
+      return Number(value.toFixed(2));
+    }
+  }
+
+  const diffCandidates = [
+    "ovrs_prdy_vrss",
+    "prdy_vrss",
+    "change",
+    "diff",
+    "ovrs_nmix_prdy_vrss",
+  ];
+  const prevCloseCandidates = [
+    "ovrs_prdy_clpr",
+    "prdy_clpr",
+    "prev_close",
+    "base",
+    "ovrs_nmix_prdy_clpr",
+  ];
+  const diff =
+    diffCandidates
+      .map((key) => parseNumeric(item[key]))
+      .find((value) => value !== 0) ?? 0;
+  const prevClose =
+    prevCloseCandidates
+      .map((key) => parseNumeric(item[key]))
+      .find((value) => value > 0) ?? 0;
+  if (diff !== 0 && prevClose > 0) {
+    return Number(((diff / prevClose) * 100).toFixed(2));
   }
   return 0;
 };
@@ -542,13 +586,14 @@ export const fetchForeignStocksFromKis = async (): Promise<Stock[]> => {
     const symbol = pickSymbolField(item) || "UNKNOWN";
     const name = pickOverseasNameField(item) || symbol;
     const price = pickOverseasPrice(item);
+    const change = pickOverseasChange(item);
     return {
       id: `kis-${symbol}`,
       name,
       symbol,
       market: "foreign",
       price: Number(price.toFixed(2)),
-      change: 0,
+      change,
       history: buildFlatHistory(price),
     };
   });

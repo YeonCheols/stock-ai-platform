@@ -191,4 +191,38 @@ describe("kisApi token issuance", () => {
       "KIS 거래량순위 리스트가 비어 있습니다."
     );
   });
+
+  it("parses foreign change rate from KIS payload", async () => {
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+      const url = String(input);
+      if (url.includes("/oauth2/tokenP")) {
+        return new Response(
+          JSON.stringify({ access_token: "token-1", expires_in: 86400 }),
+          { status: 200 }
+        );
+      }
+      if (url.includes("/overseas-stock/v1/ranking/trade-vol")) {
+        return new Response(
+          JSON.stringify({
+            output: [
+              {
+                ovrs_pdno: "AAPL",
+                name: "Apple",
+                last: "190.12",
+                ovrs_prdy_ctrt: "1.75",
+              },
+            ],
+          }),
+          { status: 200 }
+        );
+      }
+      return new Response("not-found", { status: 404 });
+    });
+
+    const { fetchForeignStocksFromKis } = await import("./kisApi");
+    const result = await fetchForeignStocksFromKis();
+
+    expect(result[0]?.symbol).toBe("AAPL");
+    expect(result[0]?.change).toBe(1.75);
+  });
 });
