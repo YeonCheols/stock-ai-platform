@@ -2,8 +2,9 @@
 
 import Link from "next/link";
 import { useParams, useSearchParams } from "next/navigation";
+import { useQuery } from "@tanstack/react-query";
 import StockChart from "@/components/stock/StockChart";
-import { useStocks } from "@/hooks/useStocks";
+import type { Stock } from "@/types/stock";
 import { cn } from "@/lib/cn";
 
 const formatPrice = (price: number, market: "domestic" | "foreign") =>
@@ -18,14 +19,27 @@ export default function StockDetailPage() {
   const params = useParams();
   const searchParams = useSearchParams();
   const marketParam = searchParams.get("market");
-  const rankingParam = searchParams.get("ranking");
   const market = marketParam === "foreign" ? "foreign" : "domestic";
-  const ranking = rankingParam === "tradeAmount" ? "tradeAmount" : "volume";
   const stockId = Array.isArray(params.id) ? params.id[0] : params.id;
 
-  const { data: stocks, isLoading } = useStocks(market, ranking);
-  const stock = stocks?.find((item) => item.id === stockId) ?? null;
-  const backHref = market === "foreign" ? "/foreign" : "/domestic";
+  const {
+    data: stock,
+    isLoading,
+    isError,
+  } = useQuery({
+    queryKey: ["stock-item", stockId],
+    queryFn: async () => {
+      const response = await fetch(`/api/stocks/item?id=${encodeURIComponent(stockId ?? "")}`);
+      if (!response.ok) {
+        throw new Error("종목 조회에 실패했습니다.");
+      }
+      return (await response.json()) as Stock;
+    },
+    enabled: Boolean(stockId),
+    retry: false,
+  });
+
+  const backHref = (stock?.market ?? market) === "foreign" ? "/foreign" : "/domestic";
   const isPositive = (stock?.change ?? 0) > 0;
 
   return (
@@ -84,6 +98,10 @@ export default function StockDetailPage() {
                 height={420}
               />
             </div>
+          </div>
+        ) : isError ? (
+          <div className="rounded-2xl border border-rose-200 bg-rose-50 p-6 text-sm text-rose-700 shadow-sm dark:border-rose-900/50 dark:bg-rose-950/30 dark:text-rose-200">
+            종목 상세를 불러오지 못했습니다. 잠시 후 다시 시도해주세요.
           </div>
         ) : (
           <div className="rounded-2xl border border-slate-200 bg-white p-6 text-sm text-slate-600 shadow-sm dark:border-slate-800 dark:bg-slate-900 dark:text-slate-300">

@@ -15,7 +15,9 @@
   "dependencies": {
     "@tanstack/react-query": "^5.90.21",
     "clsx": "^2.1.1",
+    "fflate": "^0.8.2",
     "groq-sdk": "^0.37.0",
+    "iconv-lite": "^0.7.2",
     "lightweight-charts": "^5.1.0",
     "lucide-react": "^0.575.0",
     "next": "16.1.6",

@@ -7,6 +7,7 @@ const mocks = vi.hoisted(() => ({
   useStocks: vi.fn(),
   useStockDetail: vi.fn(),
   refetch: vi.fn(),
+  push: vi.fn(),
 }));
 
 vi.mock("next/link", () => ({
@@ -30,6 +31,12 @@ vi.mock("@/hooks/useStocks", () => ({
 
 vi.mock("@/hooks/useStockDetail", () => ({
   useStockDetail: mocks.useStockDetail,
+}));
+
+vi.mock("next/navigation", () => ({
+  useRouter: () => ({
+    push: mocks.push,
+  }),
 }));
 
 import StockDashboard from "./StockDashboard";
@@ -58,6 +65,7 @@ const stocks: Stock[] = [
 describe("StockDashboard", () => {
   beforeEach(() => {
     mocks.refetch.mockReset();
+    mocks.push.mockReset();
     mocks.useStocks.mockImplementation(() => ({
       data: stocks,
       isLoading: false,
@@ -106,5 +114,19 @@ describe("StockDashboard", () => {
     await waitFor(() => {
       expect(mocks.refetch).toHaveBeenCalledTimes(1);
     });
+  });
+
+  it("navigates to search page when search is submitted", () => {
+    render(<StockDashboard market="domestic" />);
+
+    fireEvent.change(
+      screen.getByPlaceholderText("종목명 또는 티커로 검색 (예: 삼성전자, AAPL)"),
+      { target: { value: "삼성전자" } }
+    );
+    fireEvent.click(screen.getByRole("button", { name: "검색 실행" }));
+
+    expect(mocks.push).toHaveBeenCalledWith(
+      "/search?q=%EC%82%BC%EC%84%B1%EC%A0%84%EC%9E%90"
+    );
   });
 });

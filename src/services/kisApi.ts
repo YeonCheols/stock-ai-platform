@@ -1,5 +1,7 @@
 import "server-only";
 
+import { unzipSync } from "fflate";
+import iconv from "iconv-lite";
 import type { Stock, StockHistoryPoint } from "@/types/stock";
 
 const KIS_BASE_URL =
@@ -8,6 +10,13 @@ const KIS_BASE_URL =
 const HOT_CANDIDATE_COUNT = 20;
 type DomesticRanking = "volume" | "tradeAmount";
 const FOREIGN_EXCHANGES = ["NAS", "NYS"];
+const MASTER_BASE_URL = "https://new.real.download.dws.co.kr/common/master";
+const DOMESTIC_MASTER_FILES = [
+  "kospi_code.mst.zip",
+  "kosdaq_code.mst.zip",
+  "konex_code.mst.zip",
+];
+const DOMESTIC_MASTER_CACHE_TTL_MS = 6 * 60 * 60 * 1000;
 
 type KisTokenCache = {
   accessToken: string;
@@ -16,6 +25,12 @@ type KisTokenCache = {
 
 let tokenCache: KisTokenCache | null = null;
 let tokenRequestInFlight: Promise<string> | null = null;
+let domesticMasterCache:
+  | {
+      expiresAt: number;
+      items: Array<{ symbol: string; name: string }>;
+    }
+  | null = null;
 
 const getAccessToken = async () => {
   if (tokenCache && tokenCache.expiresAt > Date.now()) {
@@ -145,6 +160,7 @@ const pickOverseasNameField = (item: Record<string, unknown>) => {
   return "";
 };
 
+
 const pickOverseasPrice = (item: Record<string, unknown>) => {
   const candidates = [
     "last",
@@ -239,6 +255,113 @@ const parseNumeric = (value: unknown) => {
     return Number.isFinite(num) ? num : 0;
   }
   return 0;
+};
+
+const normalizeDomesticSymbol = (raw: string) => {
+  const digits = raw.replace(/\D/g, "");
+  return digits.length >= 6 ? digits.slice(-6) : "";
+};
+
+const parseDomesticMasterContent = (content: string) => {
+  const rows = content.split(/\r?\n/).filter((line) => line.trim().length > 0);
+  return rows
+    .map((row) => {
+      if (row.length <= 228) {
+        return null;
+      }
+      const head = row.slice(0, row.length - 228);
+      const symbol = normalizeDomesticSymbol(head.slice(0, 9).trim());
+      const name = head.slice(21).trim();
+      if (!symbol || !name) {
+        return null;
+      }
+      return { symbol, name };
+    })
+    .filter((item): item is { symbol: string; name: string } => Boolean(item));
+};
+
+const downloadDomesticMasterFile = async (fileName: string) => {
+  const response = await fetch(`${MASTER_BASE_URL}/${fileName}`, {
+    cache: "no-store",
+  });
+  if (!response.ok) {
+    throw new Error(
+      JSON.stringify({
+        status: response.status,
+        body: await response.text(),
+        endpoint: fileName,
+      })
+    );
+  }
+
+  const zipBytes = new Uint8Array(await response.arrayBuffer());
+  const files = unzipSync(zipBytes);
+  const firstFile = Object.values(files)[0];
+  if (!firstFile) {
+    return [] as Array<{ symbol: string; name: string }>;
+  }
+  const decoded = iconv.decode(Buffer.from(firstFile), "cp949");
+  return parseDomesticMasterContent(decoded);
+};
+
+const getDomesticMasterItems = async () => {
+  if (domesticMasterCache && domesticMasterCache.expiresAt > Date.now()) {
+    return domesticMasterCache.items;
+  }
+
+  const fileResults = await Promise.all(
+    DOMESTIC_MASTER_FILES.map((fileName) => downloadDomesticMasterFile(fileName))
+  );
+  const merged = fileResults.flat().reduce<Array<{ symbol: string; name: string }>>(
+    (acc, item) => {
+      if (!acc.some((existing) => existing.symbol === item.symbol)) {
+        acc.push(item);
+      }
+      return acc;
+    },
+    []
+  );
+
+  domesticMasterCache = {
+    expiresAt: Date.now() + DOMESTIC_MASTER_CACHE_TTL_MS,
+    items: merged,
+  };
+  return merged;
+};
+
+const fetchDomesticQuoteQuick = async (symbol: string, token: string) => {
+  const appKey = process.env.KIS_APP_KEY ?? "";
+  const appSecret = process.env.KIS_APP_SECRET ?? "";
+  const url = new URL(`${KIS_BASE_URL}/uapi/domestic-stock/v1/quotations/inquire-price`);
+  url.searchParams.set("FID_COND_MRKT_DIV_CODE", "J");
+  url.searchParams.set("FID_INPUT_ISCD", symbol);
+
+  const response = await fetch(url.toString(), {
+    headers: {
+      authorization: `Bearer ${token}`,
+      appkey: appKey,
+      appsecret: appSecret,
+      tr_id: "FHKST01010100",
+    },
+  });
+
+  if (!response.ok) {
+    throw new Error(
+      JSON.stringify({
+        status: response.status,
+        body: await response.text(),
+        endpoint: "quotations/inquire-price",
+        symbol,
+      })
+    );
+  }
+
+  const data = (await response.json()) as { output?: Record<string, string> };
+  const output = data.output ?? {};
+  return {
+    price: Number(output.stck_prpr ?? 0),
+    change: Number(output.prdy_ctrt ?? 0),
+  };
 };
 
 const pickOverseasChange = (item: Record<string, unknown>) => {
@@ -597,4 +720,98 @@ export const fetchForeignStocksFromKis = async (): Promise<Stock[]> => {
       history: buildFlatHistory(price),
     };
   });
+};
+
+export const searchStocksFromKis = async (query: string): Promise<Stock[]> => {
+  const keyword = query.trim();
+  if (!keyword) {
+    return [];
+  }
+  const token = await getAccessToken();
+  const lowered = keyword.toLowerCase();
+  const domesticMaster = await getDomesticMasterItems();
+  const matchedDomestic = domesticMaster
+    .filter((item) => {
+      const name = item.name.toLowerCase();
+      const symbol = item.symbol.toLowerCase();
+      return name.includes(lowered) || symbol.includes(lowered);
+    })
+    .slice(0, 20);
+
+  const domesticResultsSettled = await Promise.allSettled(
+    matchedDomestic.map(async (item) => {
+      const quote = await fetchDomesticQuoteQuick(item.symbol, token);
+      return {
+        id: `kis-${item.symbol}`,
+        name: item.name,
+        symbol: item.symbol,
+        market: "domestic" as const,
+        price: Number(quote.price.toFixed(0)),
+        change: Number(quote.change.toFixed(2)),
+        history: buildFlatHistory(quote.price),
+      };
+    })
+  );
+  const domesticResults = domesticResultsSettled.flatMap((result) =>
+    result.status === "fulfilled" ? [result.value] : []
+  );
+
+  const foreignCandidates = await fetchForeignStocksFromKis().catch(() => []);
+  const foreignResults = foreignCandidates.filter((stock) => {
+    const name = stock.name.toLowerCase();
+    const symbol = stock.symbol.toLowerCase();
+    return name.includes(lowered) || symbol.includes(lowered);
+  });
+
+  return [...domesticResults, ...foreignResults].slice(0, 20);
+};
+
+export const fetchStockByIdFromKis = async (stockId: string): Promise<Stock> => {
+  const symbol = stockId.replace(/^kis-/, "").trim().toUpperCase();
+  if (!symbol) {
+    throw new Error("유효한 종목 ID가 아닙니다.");
+  }
+
+  const token = await getAccessToken();
+  const isDomesticSymbol = /^\d{6}$/.test(symbol);
+
+  if (isDomesticSymbol) {
+    const quote = await fetchPrice(symbol, token);
+    const history = await fetchDailyHistory(symbol, token);
+    return {
+      id: `kis-${symbol}`,
+      name: quote.name,
+      symbol,
+      market: "domestic",
+      price: Number(quote.price.toFixed(0)),
+      change: Number(quote.change.toFixed(2)),
+      history,
+    };
+  }
+
+  const lists = await Promise.all(
+    FOREIGN_EXCHANGES.map((excd) => fetchOverseasTradeVol(token, excd))
+  );
+  const merged = lists.flat();
+  const matched = merged.find(
+    (item) => pickSymbolField(item).toUpperCase() === symbol
+  );
+
+  if (!matched) {
+    throw new Error(`KIS 종목을 찾을 수 없습니다 id=${stockId}`);
+  }
+
+  const name = pickOverseasNameField(matched) || symbol;
+  const price = pickOverseasPrice(matched);
+  const change = pickOverseasChange(matched);
+
+  return {
+    id: `kis-${symbol}`,
+    name,
+    symbol,
+    market: "foreign",
+    price: Number(price.toFixed(2)),
+    change,
+    history: buildFlatHistory(price),
+  };
 };
