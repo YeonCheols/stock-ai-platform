@@ -2,6 +2,7 @@ import "server-only";
 
 import { unzipSync } from "fflate";
 import iconv from "iconv-lite";
+import { getKisAccessToken } from "@/services/kisTokenStore";
 import type { Stock, StockHistoryPoint } from "@/types/stock";
 
 const KIS_BASE_URL =
@@ -18,13 +19,6 @@ const DOMESTIC_MASTER_FILES = [
 ];
 const DOMESTIC_MASTER_CACHE_TTL_MS = 6 * 60 * 60 * 1000;
 
-type KisTokenCache = {
-  accessToken: string;
-  expiresAt: number;
-};
-
-let tokenCache: KisTokenCache | null = null;
-let tokenRequestInFlight: Promise<string> | null = null;
 let domesticMasterCache:
   | {
       expiresAt: number;
@@ -32,64 +26,7 @@ let domesticMasterCache:
     }
   | null = null;
 
-const getAccessToken = async () => {
-  if (tokenCache && tokenCache.expiresAt > Date.now()) {
-    return tokenCache.accessToken;
-  }
-  if (tokenRequestInFlight) {
-    return tokenRequestInFlight;
-  }
-
-  tokenRequestInFlight = (async () => {
-    const appKey = process.env.KIS_APP_KEY;
-    const appSecret = process.env.KIS_APP_SECRET;
-    if (!appKey || !appSecret) {
-      throw new Error("KIS_APP_KEY 또는 KIS_APP_SECRET이 없습니다.");
-    }
-
-    const response = await fetch(`${KIS_BASE_URL}/oauth2/tokenP`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        grant_type: "client_credentials",
-        appkey: appKey,
-        appsecret: appSecret,
-      }),
-    });
-
-    if (!response.ok) {
-      const errorBody = await response.text();
-      throw new Error(
-        JSON.stringify({
-          status: response.status,
-          body: errorBody,
-          endpoint: "oauth2/tokenP",
-        })
-      );
-    }
-
-    const data = (await response.json()) as {
-      access_token?: string;
-      expires_in?: number;
-    };
-
-    if (!data.access_token) {
-      throw new Error("KIS 토큰 발급 응답이 비어 있습니다.");
-    }
-
-    tokenCache = {
-      accessToken: data.access_token,
-      expiresAt: Date.now() + (data.expires_in ?? 3600) * 1000,
-    };
-    return data.access_token;
-  })();
-
-  try {
-    return await tokenRequestInFlight;
-  } finally {
-    tokenRequestInFlight = null;
-  }
-};
+const getAccessToken = () => getKisAccessToken();
 
 const parseHistoryFromDaily = (items: Array<Record<string, unknown>>) => {
   const parsed = items

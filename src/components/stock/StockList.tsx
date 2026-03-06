@@ -44,7 +44,7 @@ export default function StockList({
           </p>
         </div>
         <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-600 dark:bg-slate-800 dark:text-slate-300">
-          30초마다 업데이트
+          5분마다 업데이트
         </span>
       </header>
 

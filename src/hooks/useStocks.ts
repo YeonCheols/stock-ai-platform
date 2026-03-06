@@ -8,6 +8,7 @@ export const useStocks = (
   useQuery({
     queryKey: ["stocks", market, ranking],
     queryFn: () => fetchStocks(market, ranking),
-    refetchInterval: 60000,
+    refetchInterval: 300000,
+    refetchOnWindowFocus: false,
     retry: false,
   });
