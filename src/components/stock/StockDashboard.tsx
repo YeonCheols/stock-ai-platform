@@ -3,13 +3,15 @@
 import Link from "next/link";
 import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
-import { Search } from "lucide-react";
+import { useQuery } from "@tanstack/react-query";
+import { Search, Sparkles } from "lucide-react";
 import StockList from "@/components/stock/StockList";
 import AIAnalysisPanel from "@/components/stock/AIAnalysisPanel";
 import { useStocks } from "@/hooks/useStocks";
 import { useStockDetail } from "@/hooks/useStockDetail";
 import ThemeToggle from "@/components/ThemeToggle";
 import Toast from "@/components/ui/Toast";
+import type { StockRecommendation } from "@/types/stock";
 import { cn } from "@/lib/cn";
 
 type Market = "domestic" | "foreign";
@@ -38,6 +40,48 @@ export default function StockDashboard({ market }: StockDashboardProps) {
     const list = stocks?.filter((stock) => stock.market === market) ?? [];
     return list.slice(0, 20);
   }, [stocks, market]);
+  const recommendationSeed = useMemo(
+    () =>
+      filteredStocks
+        .slice(0, 12)
+        .map((stock) => `${stock.id}:${stock.price}:${stock.change}`)
+        .join("|"),
+    [filteredStocks]
+  );
+
+  const { data: recommendationData, isFetching: recommendationLoading } = useQuery({
+    queryKey: ["ai-recommendations", market, recommendationSeed],
+    queryFn: async () => {
+      const response = await fetch("/api/recommendations", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          market,
+          count: 3,
+          horizon: "swing",
+          riskProfile: "balanced",
+          stocks: filteredStocks.slice(0, 12).map((stock) => ({
+            ...stock,
+            history: stock.history.slice(-30),
+          })),
+        }),
+      });
+      if (!response.ok) {
+        throw new Error("AI 추천 정보를 불러오지 못했습니다.");
+      }
+      return (await response.json()) as {
+        recommendations?: StockRecommendation[];
+        generatedAt?: string;
+      };
+    },
+    enabled: filteredStocks.length > 0,
+    staleTime: 60_000,
+    refetchInterval: 300_000,
+    retry: false,
+  });
+  const recommendations = recommendationData?.recommendations ?? [];
 
   const effectiveSelectedId =
     filteredStocks.find((stock) => stock.id === selectedId)?.id ??
@@ -185,6 +229,60 @@ export default function StockDashboard({ market }: StockDashboardProps) {
               </select>
             </div>
           )}
+          <section className="rounded-2xl border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900">
+            <div className="mb-3 flex items-center justify-between">
+              <h3 className="flex items-center gap-2 text-sm font-semibold text-slate-900 dark:text-white">
+                <Sparkles className="h-4 w-4 text-violet-500" />
+                AI 추천 TOP 3
+              </h3>
+              <span className="text-xs text-slate-500 dark:text-slate-400">
+                {recommendationLoading ? "업데이트 중..." : "5분 주기 갱신"}
+              </span>
+            </div>
+            {recommendations.length > 0 ? (
+              <ul className="grid gap-3 md:grid-cols-3">
+                {recommendations.map((item) => (
+                  <li
+                    key={item.stockId}
+                    className="rounded-xl border border-slate-200 bg-white p-3 dark:border-slate-700 dark:bg-slate-950/40"
+                  >
+                    <div className="mb-2 flex items-start justify-between gap-2">
+                      <Link
+                        href={`/stock/${item.stockId}?market=${item.market}&ranking=${effectiveRanking}`}
+                        className="text-sm font-semibold text-slate-900 underline-offset-2 hover:underline dark:text-white"
+                      >
+                        {item.name}
+                      </Link>
+                      <span
+                        className={cn(
+                          "rounded-full px-2 py-0.5 text-[11px] font-semibold",
+                          item.action === "buy" &&
+                            "bg-rose-100 text-rose-600 dark:bg-rose-900/30 dark:text-rose-200",
+                          item.action === "hold" &&
+                            "bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-200",
+                          item.action === "avoid" &&
+                            "bg-blue-100 text-blue-600 dark:bg-blue-900/30 dark:text-blue-200"
+                        )}
+                      >
+                        {item.action.toUpperCase()}
+                      </span>
+                    </div>
+                    <p className="mb-2 text-xs text-slate-500 dark:text-slate-400">
+                      {item.symbol} · 점수 {item.score} · 신뢰도{" "}
+                      {(item.confidence * 100).toFixed(0)}%
+                    </p>
+                    <p className="line-clamp-2 text-xs leading-relaxed text-slate-600 dark:text-slate-300">
+                      {item.thesis}
+                    </p>
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p className="text-xs text-slate-500 dark:text-slate-400">
+                추천 후보를 계산하는 중입니다.
+              </p>
+            )}
+          </section>
           <div className="grid gap-6 lg:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]">
           <StockList
             stocks={filteredStocks}

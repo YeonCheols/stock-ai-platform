@@ -31,3 +31,17 @@ export interface StockAIAnalysis {
   risks: string[];
   newsSummary: string[];
 }
+
+export interface StockRecommendation {
+  stockId: string;
+  symbol: string;
+  name: string;
+  market: "domestic" | "foreign";
+  action: "buy" | "hold" | "avoid";
+  score: number;
+  confidence: number;
+  thesis: string;
+  catalysts: string[];
+  risks: string[];
+  newsSummary: string[];
+}
