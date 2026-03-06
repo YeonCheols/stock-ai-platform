@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import type { Stock, StockAIAnalysis } from "@/types/stock";
 
@@ -86,11 +86,6 @@ export const useStockDetail = (stock: Stock | null) => {
   const [streamingText, setStreamingText] = useState("");
   const [isStreaming, setIsStreaming] = useState(false);
 
-  useEffect(() => {
-    setStreamingText("");
-    setIsStreaming(false);
-  }, [stock?.id]);
-
   const query = useQuery({
     queryKey: [
       "stock-detail",
@@ -102,7 +97,10 @@ export const useStockDetail = (stock: Stock | null) => {
     queryFn: () =>
       stock
         ? fetchStreamedAnalysis(stock, {
-            onStart: () => setIsStreaming(true),
+            onStart: () => {
+              setStreamingText("");
+              setIsStreaming(true);
+            },
             onDelta: (text) => setStreamingText(text),
             onDone: () => setIsStreaming(false),
           })
